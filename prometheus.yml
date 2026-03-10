@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 1s
+  evaluation_interval: 1s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['prometheus:9090']
+
+  - job_name: 'node-gateway'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['node-gateway:3001']
+
+  - job_name: 'go-engine'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['go-engine:8080']

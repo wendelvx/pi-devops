@@ -1,0 +1,24 @@
+services:
+  prometheus:
+    image: prom/prometheus
+    container_name: dungeon_prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      node-gateway:
+        condition: service_started
+      go-engine:
+        condition: service_started
+
+  node-gateway:
+    build: ./gateway-node
+    ports:
+      - "3001:3001"
+
+  go-engine:
+    build: ./go-engine
+    ports:
+      - "8080:8080"
