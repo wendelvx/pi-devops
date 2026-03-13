@@ -8,6 +8,7 @@ services:
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --api.dashboard=true
+      - --api.insecure=true       # expõe dashboard na porta 8080
     ports:
       - "8081:80"    # web entrypoint (use rpg.local:8081 ou localhost:8081)
       - "8082:8080"  # dashboard
