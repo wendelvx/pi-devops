@@ -1,8 +1,8 @@
 import { View, Text, TouchableOpacity, TextInput, StyleSheet } from "react-native";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { io } from "socket.io-client";
 
-const socket = io("http://SEU_IP:3000"); // coloque o IP do seu servidor
+const socket = io("http://SEU_IP:3000");
 
 export default function HomeScreen() {
 
