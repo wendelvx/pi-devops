@@ -4,7 +4,8 @@ WORKDIR /app
 
 # Instala dependências primeiro para melhor cache em alterações de código
 COPY package*.json ./
-RUN npm install
+ENV NODE_ENV=production
+RUN npm install --production
 
 # Copia o restante do código da aplicação
 COPY . .

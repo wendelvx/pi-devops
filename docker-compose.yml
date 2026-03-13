@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  traefik:
+    image: ghcr.io/traefik/traefik:v3.0
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --api.dashboard=true
+    ports:
+      - "8081:80"    # web entrypoint (use rpg.local:8081 ou localhost:8081)
+      - "8082:8080"  # dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - traefik
+
+  node-gateway:
+    build: ./gateway-node
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.node-gateway.rule=(Host(`rpg.local`) || Host(`localhost`)) && PathPrefix(`/api`)
+      - traefik.http.routers.node-gateway.entrypoints=web
+      - traefik.http.services.node-gateway.loadbalancer.server.port=3001
+      - traefik.http.routers.node-gateway.middlewares=node-gateway-stripprefix
+      - traefik.http.middlewares.node-gateway-stripprefix.stripprefix.prefixes=/api
+    networks:
+      - traefik
+
+  go-engine:
+    build: ./go-engine
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.go-engine.rule=(Host(`rpg.local`) || Host(`localhost`)) && PathPrefix(`/metrics`)
+      - traefik.http.routers.go-engine.entrypoints=web
+      - traefik.http.services.go-engine.loadbalancer.server.port=8080
+      - traefik.http.routers.go-engine-ping.rule=(Host(`rpg.local`) || Host(`localhost`)) && Path(`/ping`)
+      - traefik.http.routers.go-engine-ping.entrypoints=web
+      - traefik.http.routers.go-engine-ping.service=go-engine
+    networks:
+      - traefik
+
+networks:
+  traefik:
+    driver: bridge
