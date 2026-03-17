@@ -1,41 +1,25 @@
-const http = require("http");
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const registerGameHandlers = require('./sockets/gameHandlers');
+const initRedisSubscriber = require('./services/redisSubscriber');
 
-const port = Number(process.env.PORT || 3001);
-const redisHost = process.env.REDIS_HOST || "redis";
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
 
-function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, { "Content-Type": "application/json" });
-  response.end(JSON.stringify(payload));
-}
-
-const server = http.createServer((request, response) => {
-  const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
-
-  if (url.pathname === "/api" || url.pathname === "/api/") {
-    sendJson(response, 200, {
-      service: "node-gateway",
-      status: "ok",
-      redisHost,
-      path: url.pathname,
-    });
-    return;
-  }
-
-  if (url.pathname === "/api/health") {
-    sendJson(response, 200, {
-      service: "node-gateway",
-      status: "healthy",
-    });
-    return;
-  }
-
-  sendJson(response, 404, {
-    error: "not_found",
-    service: "node-gateway",
-    path: url.pathname,
-  });
+app.get('/api/health', (req, res) => {
+  res.json({ status: "healthy", service: "node-gateway" });
 });
 
-server.listen(port, "0.0.0.0", () => {
-  console.log(`node-gateway listening on ${port}`);
+initRedisSubscriber(io);
+
+io.on('connection', (socket) => {
+  console.log(`📡 Novo aluno conectado: ${socket.id}`);
+  registerGameHandlers(io, socket);
+});
+
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Gateway online na porta ${PORT}`);
 });
