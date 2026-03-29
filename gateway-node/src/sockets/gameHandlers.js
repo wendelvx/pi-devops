@@ -1,20 +1,32 @@
 const { pub } = require('../config/redis');
+const { attackCounter } = require('../config/metrics');
 
 module.exports = (io, socket) => {
-  socket.on('attack', (data) => {
-    if (!data.class || !data.nickname) return;
-
-    const payload = JSON.stringify({
-      type: 'attack',
-      class: data.class,
-      nickname: data.nickname,
-      timestamp: Date.now()
+    socket.on('join_game', (data) => {
+        socket.data.playerClass = data.class;
+        socket.data.nickname = data.nickname;
+        
+        pub.publish('player_attacks', JSON.stringify({
+            type: 'join',
+            class: data.class,
+            nickname: data.nickname,
+            timestamp: Date.now()
+        }));
     });
 
-    pub.publish('player_attacks', payload);
-  });
+    socket.on('attack', () => {
+        const { playerClass } = socket.data;
 
-  socket.on('disconnect', () => {
-    console.log(`❌ Usuário desconectado: ${socket.id}`);
-  });
+        if (playerClass) {
+            // ✅ Incrementa no Prometheus com a label da classe
+            attackCounter.inc({ class: playerClass });
+        }
+
+        pub.publish('player_attacks', JSON.stringify({
+            type: 'attack',
+            class: playerClass || 'unknown',
+            nickname: socket.data.nickname || 'anon',
+            timestamp: Date.now()
+        }));
+    });
 };
