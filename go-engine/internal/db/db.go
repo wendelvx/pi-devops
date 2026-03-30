@@ -1,20 +1,30 @@
 package db
 
 import (
+	"fmt"
+	"os"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func ConectDb() *gorm.DB {
-	dns := "host=localhost user=dev password=1234 dbname=dev port=5432 sslmode=disable TimeZone=America/Sao_Paulo"
+	host := os.Getenv("DB_HOST")
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+	dbname := os.Getenv("DB_NAME")
+	port := os.Getenv("DB_PORT")
 
-	db, err := gorm.Open(postgres.Open(dns), &gorm.Config{})
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=America/Sao_Paulo",
+		host, user, password, dbname, port)
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 
 	if err != nil {
-		panic("Problem connect to the database;")
+		panic(fmt.Sprintf("Problem connect to the database: %v", err))
 	}
 
-	//db.AutoMigrate()
+	// db.AutoMigrate()
 
 	return db
 }
