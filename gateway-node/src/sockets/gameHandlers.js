@@ -5,7 +5,7 @@ const lastAttack = new Map();
 
 module.exports = (io, socket) => {
     // 1. Join Game: Registro inicial do aluno
-    socket.on('join_game', (data) => {
+    socket.on('join_game', (data = {}) => {
         socket.data.playerClass = data.class;
         socket.data.nickname = data.nickname;
         
@@ -13,6 +13,15 @@ module.exports = (io, socket) => {
             type: 'join',
             class: data.class,
             nickname: data.nickname,
+            timestamp: Date.now()
+        }));
+    });
+
+    socket.on('admin_start_game', (data = {}) => {
+        pub.publish('player_attacks', JSON.stringify({
+            ...data,
+            type: 'start_command',
+            boss: data.boss,
             timestamp: Date.now()
         }));
     });
