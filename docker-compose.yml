@@ -38,6 +38,26 @@ services:
       timeout: 3s
       retries: 5
 
+  postgres-replica:
+    image: postgres:15-alpine
+    container_name: dungeon_db_replica
+    restart: unless-stopped
+    command: ["postgres", "-c", "default_transaction_read_only=on"]
+    environment:
+      - POSTGRES_USER=dev
+      - POSTGRES_PASSWORD=1234
+      - POSTGRES_DB=dev
+    volumes:
+      - pgdata_replica:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   node-gateway:
     build: ./gateway-node
     container_name: node_gateway
@@ -90,3 +110,4 @@ services:
 
 volumes:
   pgdata:
+  pgdata_replica:
