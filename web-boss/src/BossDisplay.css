@@ -164,3 +164,22 @@
     opacity: 1;
   }
 }
+.chaos-alert {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-weight: bold;
+  color: white;
+  animation: pulse 0.5s infinite alternate;
+}
+
+.chaos-alert.SERVER_500 {
+  background-color: #ff3b3b;
+}
+
+.chaos-alert.SECURITY_BREACH {
+  background-color: purple;
+}

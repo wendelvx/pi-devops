@@ -11,7 +11,8 @@ const socket = io('http://localhost:3000', { autoConnect: true })
 function BossDisplay() {
   const [hp, setHp] = useState(100)
   const [bossState, setBossState] = useState('threat')
-
+  const [chaosEvent, setChaosEvent] = useState(null)
+  
   const simulateDamage = () => {
     const newHp = Math.max(0, hp - 5)
     setHp(newHp)
@@ -47,11 +48,24 @@ function BossDisplay() {
         setBossState("victory")
       }
     })
+  
+    socket.on("chaosEvent", (event) => {
+      console.log("Evento de caos recebido:", event)
+
+      if (event.targetClass === userClass) {
+        setChaosEvent(event)
+
+        setTimeout(() => {
+          setChaosEvent(null)
+        }, 4000)
+      }
+         })
 
     return () => {
       socket.off('connect')
       socket.off('disconnect')
       socket.off('bossUpdate')
+      socket.off('chaosEvent')
     }
   }, [])
 
@@ -62,12 +76,15 @@ function BossDisplay() {
 
   return (
     <div className="display-container">
+      {chaosEvent && (
+      <div className={`chaos-alert ${chaosEvent.type}`}>
+    ⚠️ {chaosEvent.message}
+      </div>
+      )}
 
-      {/* Simulação de dano para gerar animação */}
       <button className="dev-test-button" onClick={simulateDamage}>
         Simular Dano
       </button>
-      {/* Simulação de vitória do boss para gerar animação */}
       <button className="dev-test-button victory" onClick={simulateBossVictory}>
         Simular Vitória
       </button>
