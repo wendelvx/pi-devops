@@ -1,0 +1,82 @@
+.postmatch-container {
+  padding: 20px;
+  color: white;
+  background: #0a0a0a;
+  min-height: 100vh;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+
+.mvp-card {
+  background: linear-gradient(135deg, gold, orange);
+  color: black;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 25px;
+  text-align: center;
+  box-shadow: 0 0 25px gold;
+  animation: fadeIn 0.8s ease;
+}
+
+.mvp-name {
+  font-size: 1.8rem;
+  font-weight: bold;
+}
+
+.mvp-class {
+  font-style: italic;
+}
+
+.mvp-score {
+  font-weight: bold;
+}
+
+/* Ranking */
+.ranking {
+  margin-top: 10px;
+}
+
+.player-row {
+  padding: 12px;
+  border-bottom: 1px solid #333;
+  transition: background 0.2s;
+}
+
+.player-row:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.player-header {
+  font-weight: bold;
+}
+
+.player-stats {
+  font-size: 0.9rem;
+  color: #bbb;
+}
+
+
+.first-place {
+  color: gold;
+  font-weight: bold;
+  text-shadow: 0 0 10px gold;
+}
+
+.loading,
+.error {
+  color: white;
+  text-align: center;
+  margin-top: 50px;
+  font-size: 1.2rem;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
