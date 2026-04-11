@@ -5,8 +5,8 @@ import "time"
 type BossProfile struct {
 	ID           string        `json:"id"`
 	Name         string        `json:"name"`
-	BaseHP       int           `json:"base_hp"`
-	BaseDamage   int           `json:"base_damage"`
+	BaseHP       float64       `json:"base_hp"`
+	BaseDamage   float64       `json:"base_damage"`
 	AttackSpeed  time.Duration `json:"attack_speed"`
 	IncidentBias string        `json:"incident_bias"`
 }

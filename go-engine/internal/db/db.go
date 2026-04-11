@@ -24,7 +24,5 @@ func ConectDb() *gorm.DB {
 		panic(fmt.Sprintf("Problem connect to the database: %v", err))
 	}
 
-	// db.AutoMigrate()
-
 	return db
 }
