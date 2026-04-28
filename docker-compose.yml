@@ -1,16 +1,20 @@
 services:
   traefik:
-    image: traefik:v3.3
+    image: traefik:v2.11
     container_name: dungeon_traefik
     restart: unless-stopped
     command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --entrypoints.web.address=:80
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
     ports:
-      - "${TRAEFIK_PORT:-80}:80"
+      - "80:80"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Usando a sintaxe de montagem de socket que provou ser funcional no seu Windows
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - dungeon_net
 
   redis:
     image: redis:alpine
@@ -21,6 +25,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - dungeon_net
 
   postgres:
     image: postgres:15-alpine
@@ -32,11 +38,15 @@ services:
       - POSTGRES_DB=dev
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # A LINHA MÁGICA ABAIXO (Ela roda o script na primeira vez que o banco sobe)
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dev -d dev"]
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - dungeon_net
 
   node-gateway:
     build: ./gateway-node
@@ -48,13 +58,15 @@ services:
     expose:
       - "3001"
     labels:
-      - traefik.enable=true
-      - traefik.http.routers.node-gateway.rule=Host(`rpg.local`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))
-      - traefik.http.routers.node-gateway.entrypoints=web
-      - traefik.http.services.node-gateway.loadbalancer.server.port=3001
+      - "traefik.enable=true"
+      - "traefik.http.routers.node-gateway.rule=Host(`rpg.local`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
+      - "traefik.http.routers.node-gateway.entrypoints=web"
+      - "traefik.http.services.node-gateway.loadbalancer.server.port=3001"
     depends_on:
       redis:
         condition: service_healthy
+    networks:
+      - dungeon_net
 
   go-engine:
     build: ./go-engine
@@ -69,15 +81,17 @@ services:
     expose:
       - "8080"
     labels:
-      - traefik.enable=true
-      - traefik.http.routers.go-engine.rule=Host(`rpg.local`) && PathPrefix(`/metrics`)
-      - traefik.http.routers.go-engine.entrypoints=web
-      - traefik.http.services.go-engine.loadbalancer.server.port=8080
+      - "traefik.enable=true"
+      - "traefik.http.routers.go-engine.rule=Host(`rpg.local`) && PathPrefix(`/metrics`)"
+      - "traefik.http.routers.go-engine.entrypoints=web"
+      - "traefik.http.services.go-engine.loadbalancer.server.port=8080"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - dungeon_net
 
   prometheus:
     image: prom/prometheus
@@ -86,7 +100,14 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090" 
+      - "9090:9090"
+    networks:
+      - dungeon_net
+
+networks:
+  dungeon_net:
+    driver: bridge
 
 volumes:
   pgdata:
+    driver: local

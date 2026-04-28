@@ -1,10 +1,8 @@
-import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import BossDisplay from './BossDisplay.jsx'
+import App from './App.jsx'
 
+// Sem StrictMode, o Socket conecta apenas UMA vez de forma limpa.
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <BossDisplay />
-  </StrictMode>,
+    <App />
 )
