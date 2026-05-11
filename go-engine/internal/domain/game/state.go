@@ -75,6 +75,17 @@ func (sm *StateManager) ClearIncident() {
     sm.state.IncidentTimer = 0
 }
 
+func (sm *StateManager) Reset() {
+    sm.mu.Lock()
+    defer sm.mu.Unlock()
+
+    sm.state.BossHP = sm.state.CurrentBoss.MaxHP
+    sm.state.Status = "fighting"
+    sm.state.ActiveIncident = nil
+    sm.state.IncidentTimer = 0
+    sm.state.LastAction = "A masmorra foi resetada pelo Professor!"
+}
+
 // TickIncidentTimer reduz 1 segundo do relógio de forma thread-safe
 // Retorna true se o tempo acabar.
 func (sm *StateManager) TickIncidentTimer() bool {

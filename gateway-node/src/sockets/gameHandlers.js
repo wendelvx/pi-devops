@@ -16,8 +16,8 @@ module.exports = (io, socket) => {
     
     // 1. Join Game com Validação de Vagas e Salas (RF02 & RF09)
     socket.on('join_game', async (data) => {
-        // Agora extraímos a sala (se não vier, cai na 'default')
-        const { nickname, class: playerClass, room_id = 'sala_padrao' } = data;
+        // EXTRAINDO O BOSS_ID AQUI!
+        const { nickname, class: playerClass, room_id = 'sala_padrao', boss_id = '' } = data;
 
         if (!playerClass || !nickname) {
             return socket.emit('game_error', { message: "Dados de login incompletos." });
@@ -30,7 +30,8 @@ module.exports = (io, socket) => {
             // Consulta o Redis para saber quantos membros essa classe já possui NESTA SALA
             const currentCount = await pub.scard(roomClassKey);
 
-            if (currentCount >= CLASS_LIMITS[playerClass]) {
+            // Valida o limite de vagas (ignorando a classe 'admin' que não tem limite)
+            if (CLASS_LIMITS[playerClass] !== undefined && currentCount >= CLASS_LIMITS[playerClass]) {
                 return socket.emit('game_error', { 
                     message: `A classe ${playerClass} atingiu o limite na sala ${room_id}.` 
                 });
@@ -52,6 +53,7 @@ module.exports = (io, socket) => {
                 type: 'join',
                 class: playerClass,
                 nickname: nickname,
+                payload: boss_id, // MÁGICA AQUI: O payload avisa o Go qual Boss criar!
                 timestamp: Date.now()
             }));
 
@@ -99,9 +101,29 @@ module.exports = (io, socket) => {
             type: 'resolve',
             class: playerClass,
             nickname: nickname,
-            payload: data ? data.payload : "", // Adicionamos o payload aqui!
+            payload: data ? data.payload : "", 
             timestamp: Date.now()
         }));
+    });
+
+    socket.on('admin_reset_room', (data) => {
+        const { room_id } = data;
+        const { playerClass } = socket.data;
+
+        // Validação de segurança: apenas quem entrou como admin pode resetar
+        if (playerClass !== 'admin') return;
+
+        // 1. Avisa a Go-Engine para zerar o estado interno (HP, Incidentes, Status)
+        pub.publish(`room:${room_id}:attacks`, JSON.stringify({
+            type: 'reset',
+            class: 'admin',
+            nickname: 'GAME_MASTER',
+            timestamp: Date.now()
+        }));
+
+        // 2. Avisa os Apps Mobile conectados nesta sala para exibirem o alerta e saírem da tela de vitória
+        io.to(room_id).emit('room_reset', { message: "O professor resetou a sala!" });
+        console.log(`🔄 O Mestre resetou a sala [${room_id}].`);
     });
 
     // 4. Tratamento de Desconexão (RF08)

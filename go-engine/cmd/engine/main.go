@@ -10,8 +10,8 @@ import (
 
     "github.com/redis/go-redis/v9"
     "pi-devops/internal/db"
-    "pi-devops/internal/domain/boss" 
-    "pi-devops/internal/domain/game" 
+    "pi-devops/internal/domain/boss"
+    "pi-devops/internal/domain/game"
     metrics "pi-devops/internal/metrics"
 )
 
@@ -33,9 +33,10 @@ func main() {
     log.Printf("🔌 Redis conectado em: %s", redisAddr)
 
     // 3. Dispara a Game Engine (O Mestre da Masmorra)
+    // Toda a lógica de Salas, Ataques e o novo RESET rodam em background a partir daqui!
     go game.StartGameEngine(database, rdb)
 
-    // 4. Configuração do Servidor HTTP (API REST)
+    // 4. Configuração do Servidor HTTP (API REST Auxiliar)
     port := os.Getenv("PORT")
     if port == "" {
         port = "8080"
@@ -97,12 +98,11 @@ func main() {
         json.NewEncoder(writer).Encode(rankings)
     })
 
-    // --- PREPARAÇÃO PARA A WEB: Painel do Professor ---
+    // --- Painel do Professor ---
     mux.HandleFunc("/admin/rooms", func(writer http.ResponseWriter, request *http.Request) {
         enableCors(writer)
         if request.Method == "OPTIONS" { return }
 
-        // Aqui implementaremos a criação de salas personalizadas em breve!
         writer.Header().Set("Content-Type", "application/json")
         fmt.Fprintf(writer, `{"status":"pending","message":"Endpoint de criação de sala em construção!"}`)
     })

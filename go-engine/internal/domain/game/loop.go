@@ -16,7 +16,7 @@ import (
 
 func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
     ctx := context.Background()
-    
+
     // Mapa para gerenciar múltiplas salas simultaneamente (RF09)
     rooms := make(map[string]*StateManager)
 
@@ -32,44 +32,86 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
         }
         roomID := parts[1]
 
-        // Inicialização Dinâmica da Sala
+        // 1. LÊ A MENSAGEM PRIMEIRO (Antes de verificar se a sala existe)
+        var action contracts.PlayerAction
+        json.Unmarshal([]byte(msg.Payload), &action)
+
+        // 2. Inicialização Dinâmica da Sala
         if _, exists := rooms[roomID]; !exists {
             log.Printf("🏰 Nova instância detectada: %s. Inicializando Boss...", roomID)
+
+            targetBoss := "infra_boss" // Boss Padrão
             
-            // Aqui você pode buscar o boss correto baseado na sala depois, por enquanto deixamos o padrão
-            professor := boss.GetProfessorBoss("infra_boss") 
+            // Se a sala está sendo criada agora e o evento é 'join',
+            // nós olhamos o Payload para ver se o Admin mandou um boss específico!
+            if action.Type == "join" && action.Payload != "" {
+                targetBoss = action.Payload
+            }
+
+            professor := boss.GetProfessorBoss(targetBoss)
             rooms[roomID] = NewStateManager(professor)
 
-            // NOVO: Inicia o Game Loop de 1 Segundo para ESTA sala
+            // Inicia o Game Loop de 1 Segundo para ESTA sala
             go startRoomGameLoop(ctx, rdb, rooms[roomID], roomID)
         }
 
         sm := rooms[roomID]
-        var action contracts.PlayerAction
-        json.Unmarshal([]byte(msg.Payload), &action)
-
         currentState := sm.GetState()
+
+        // =======================================================
+        // 1. TRATAMENTO DE RESET (Tem que ser o primeiro de todos!)
+        // =======================================================
+        if action.Type == "reset" {
+            wasDead := currentState.Status != "fighting"
+            sm.Reset() // Restaura vida e status
+
+            // PULO DO GATO: Se o boss estava morto, o relógio dessa sala tinha parado.
+            // Precisamos "reviver" a Goroutine do relógio para os incidentes voltarem!
+            if wasDead {
+                go startRoomGameLoop(ctx, rdb, sm, roomID)
+            }
+
+            broadcastState(ctx, rdb, sm.GetState(), roomID)
+            continue
+        }
+
+        // =======================================================
+        // 2. TRAVA DE FIM DE JOGO
+        // =======================================================
+        // Se chegou aqui e o jogo acabou, ignora ataques e resoluções.
         if currentState.Status != "fighting" {
             continue
+        }
+
+        // =======================================================
+        // 3. TRAVA DE INCIDENTE GLOBAL (NOVO)
+        // =======================================================
+        // Se houver um incidente ativo, o sistema "trava" ataques normais.
+        // Apenas resoluções ou ataques da classe que pode resolver são permitidos!
+        if currentState.ActiveIncident != nil && action.Type == "attack" {
+            // Se o aluno que tentou atacar NÃO é a classe responsável por resolver...
+            if action.Class != currentState.ActiveIncident.TargetClass {
+                continue // Ignora o ataque solenemente! O servidor está travado.
+            }
         }
 
         // --- TRATAMENTO DE ATAQUE ---
         if action.Type == "attack" {
             dmg := CalculateDamage(action.Class, currentState.CurrentBoss.Weakness)
             msgAction := fmt.Sprintf("%s atacou!", action.Nickname)
-            
+
             sm.ApplyDamage(dmg, msgAction)
 
             go db.Exec(`INSERT INTO rankings (nickname, class, total_damage, battle_id) 
                 VALUES (?, ?, ?, 1) ON CONFLICT (nickname) 
-                DO UPDATE SET total_damage = rankings.total_damage + EXCLUDED.total_damage`, 
+                DO UPDATE SET total_damage = rankings.total_damage + EXCLUDED.total_damage`,
                 action.Nickname, action.Class, dmg)
         }
 
         // --- TRATAMENTO DE RESOLUÇÃO ---
         if action.Type == "resolve" {
             success, logMsg := ValidateResolution(currentState.ActiveIncident, action.Class, action.Payload)
-            
+
             if success {
                 points := currentState.ActiveIncident.Points
                 sm.ApplyDamage(points, fmt.Sprintf("✨ %s: %s", action.Nickname, logMsg))
@@ -83,13 +125,15 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
     }
 }
 
-// NOVO: O Coração da Sala (Roda a cada 1 segundo)
+// O Coração da Sala (Roda a cada 1 segundo)
 func startRoomGameLoop(ctx context.Context, rdb *redis.Client, sm *StateManager, roomID string) {
     ticker := time.NewTicker(1 * time.Second) // Relógio de 1 segundo!
     chaosCounter := 0
 
     for range ticker.C {
         state := sm.GetState()
+        
+        // Se o Boss morrer, o relógio para e a rotina morre (poupa RAM)
         if state.Status != "fighting" {
             ticker.Stop()
             return
@@ -99,11 +143,10 @@ func startRoomGameLoop(ctx context.Context, rdb *redis.Client, sm *StateManager,
 
         // 1. Se tem um incidente ativo, faz a contagem regressiva
         if state.ActiveIncident != nil {
-            expired := sm.TickIncidentTimer() // Reduz 1 segundo do relógio
-            needsBroadcast = true // Avisa o mobile para atualizar o relógio na tela
+            expired := sm.TickIncidentTimer()
+            needsBroadcast = true
 
             if expired {
-                // Punição: Dano negativo atua como CURA no ApplyDamage
                 sm.ApplyDamage(-150, "⚠️ Tempo Esgotado! A falha curou o Boss!")
                 sm.ClearIncident()
             }
