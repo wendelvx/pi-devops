@@ -12,11 +12,23 @@ const CLASS_LIMITS = {
 
 const lastAttack = new Map();
 
+// ========================================================
+// 1. NOVO: Função para forçar a Go Engine a devolver o estado atual
+// Isso garante que o dashboard atualize imediatamente no Join/Disconnect
+// ========================================================
+function triggerGoEngineUpdate(room_id) {
+    pub.publish(`room:${room_id}:attacks`, JSON.stringify({
+        type: 'ping', // 'ping' não causa dano, só faz a Go Engine responder com o estado atual
+        class: 'system',
+        nickname: 'gateway',
+        timestamp: Date.now()
+    }));
+}
+
 module.exports = (io, socket) => {
     
-    // 1. Join Game com Validação de Vagas e Salas (RF02 & RF09)
+    // Join Game com Validação de Vagas e Salas (RF02 & RF09)
     socket.on('join_game', async (data) => {
-        // EXTRAINDO O BOSS_ID AQUI!
         const { nickname, class: playerClass, room_id = 'sala_padrao', boss_id = '' } = data;
 
         if (!playerClass || !nickname) {
@@ -53,12 +65,17 @@ module.exports = (io, socket) => {
                 type: 'join',
                 class: playerClass,
                 nickname: nickname,
-                payload: boss_id, // MÁGICA AQUI: O payload avisa o Go qual Boss criar!
+                payload: boss_id, 
                 timestamp: Date.now()
             }));
 
             socket.emit('joined', { status: 'success', nickname, playerClass, room_id });
             console.log(`🎮 ${nickname} entrou como ${playerClass} na sala [${room_id}]`);
+
+            // ========================================================
+            // 2. NOVO: Chama a função para atualizar a tela do Dashboard
+            // ========================================================
+            triggerGoEngineUpdate(room_id);
 
         } catch (err) {
             console.error("Erro ao processar join_game:", err);
@@ -66,7 +83,7 @@ module.exports = (io, socket) => {
         }
     });
 
-    // 2. Comando de Ataque (RF04)
+    // Comando de Ataque (RF04)
     socket.on('attack', () => {
         const now = Date.now();
         const lastTime = lastAttack.get(socket.id) || 0;
@@ -91,7 +108,7 @@ module.exports = (io, socket) => {
         }));
     });
 
-    // 3. Resolução de Incidentes (RF05)
+    // Resolução de Incidentes (RF05)
     socket.on('resolve_incident', (data) => {
         const { playerClass, nickname, room_id } = socket.data;
         if (!playerClass || !room_id) return;
@@ -113,7 +130,7 @@ module.exports = (io, socket) => {
         // Validação de segurança: apenas quem entrou como admin pode resetar
         if (playerClass !== 'admin') return;
 
-        // 1. Avisa a Go-Engine para zerar o estado interno (HP, Incidentes, Status)
+        // Avisa a Go-Engine para zerar o estado interno (HP, Incidentes, Status)
         pub.publish(`room:${room_id}:attacks`, JSON.stringify({
             type: 'reset',
             class: 'admin',
@@ -121,12 +138,12 @@ module.exports = (io, socket) => {
             timestamp: Date.now()
         }));
 
-        // 2. Avisa os Apps Mobile conectados nesta sala para exibirem o alerta e saírem da tela de vitória
+        // Avisa os Apps Mobile conectados nesta sala para exibirem o alerta e saírem da tela de vitória
         io.to(room_id).emit('room_reset', { message: "O professor resetou a sala!" });
         console.log(`🔄 O Mestre resetou a sala [${room_id}].`);
     });
 
-    // 4. Tratamento de Desconexão (RF08)
+    // Tratamento de Desconexão (RF08)
     socket.on('disconnect', async () => {
         const { playerClass, nickname, room_id } = socket.data;
         
@@ -134,6 +151,11 @@ module.exports = (io, socket) => {
             // Libera a vaga na sala correta do Redis
             await pub.srem(`room:${room_id}:class_members:${playerClass}`, nickname);
             console.log(`❌ ${nickname} saiu da sala [${room_id}].`);
+            
+            // ========================================================
+            // 3. NOVO: Chama a função para atualizar a tela do Dashboard
+            // ========================================================
+            triggerGoEngineUpdate(room_id);
         }
         
         lastAttack.delete(socket.id);
