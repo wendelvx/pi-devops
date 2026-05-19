@@ -75,7 +75,7 @@ module.exports = (io, socket) => {
 
             socket.emit('joined', { status: 'success', nickname, playerClass, room_id });
 
-            triggerGoEngineUpdate(room_id);
+            // 💥 triggerGoEngineUpdate removido daqui para evitar conflito com a criação da sala
 
         } catch (err) {
             console.error("Erro ao processar join_game:", err);
@@ -84,11 +84,14 @@ module.exports = (io, socket) => {
     });
 
     // ==========================================
-    // NOVO: CONEXÃO DE ESPECTADOR DO ADMIN
+    // CONEXÃO DE ESPECTADOR DO ADMIN
     // ==========================================
-    socket.on('join_admin_spectator', (data) => {
+    socket.on('join_admin_spectator', async (data) => {
         const { room_id } = data;
         if (!room_id) return;
+        
+        // 💥 NOVO: Garante que a sala exista no Redis mesmo se o painel web sofrer refresh
+        await pub.sadd('active_dungeon_rooms', room_id);
         
         socket.join(room_id);
         socket.data.playerClass = 'admin';
@@ -102,7 +105,7 @@ module.exports = (io, socket) => {
     });
 
     // ==========================================
-    // NOVO: START DA PARTIDA (Trava do Mestre)
+    // START DA PARTIDA (Trava do Mestre)
     // ==========================================
     socket.on('admin_start_battle', (data) => {
         const { room_id } = data;
@@ -184,5 +187,28 @@ module.exports = (io, socket) => {
         }
         
         lastAttack.delete(socket.id);
+    });
+
+    // Destruição da Sala
+    socket.on('admin_delete_room', async (data) => {
+        const { room_id } = data;
+        if (!room_id) return;
+
+        // 1. Remove a sala do Redis para que ninguém novo consiga logar
+        await pub.srem('active_dungeon_rooms', room_id);
+        
+        // 2. Notifica o Go Engine para matar o Game Loop
+        pub.publish(`room:${room_id}:attacks`, JSON.stringify({
+            type: 'delete',
+            class: 'admin',
+            nickname: 'GAME_MASTER',
+            timestamp: Date.now()
+        }));
+
+        // 3. Emite um aviso aos alunos conectados e os expulsa da sala do socket
+        io.to(room_id).emit('room_deleted', { message: "A instância foi encerrada permanentemente pelo Professor." });
+        io.in(room_id).socketsLeave(room_id);
+        
+        console.log(`🗑️ Sala [${room_id}] deletada e todos os alunos foram expulsos.`);
     });
 };

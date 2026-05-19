@@ -36,8 +36,8 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 		if _, exists := rooms[roomID]; !exists {
 			log.Printf("🏰 Nova instância detectada: %s. Inicializando Boss...", roomID)
 
-			targetBoss := "infra_boss" 
-			
+			targetBoss := "infra_boss"
+
 			if action.Type == "join" && action.Payload != "" {
 				targetBoss = action.Payload
 			}
@@ -52,11 +52,25 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 		currentState := sm.GetState()
 
 		// =======================================================
+		// NOVO: TRATAMENTO DE DESTRUIÇÃO TOTAL DA SALA
+		// =======================================================
+		if action.Type == "delete" {
+			sm.mu.Lock()
+			sm.state.Status = "deleted" // Muda o status para a Goroutine morrer
+			sm.mu.Unlock()
+
+			// Remove a sala do map na memória RAM para liberar os recursos do servidor
+			delete(rooms, roomID)
+			log.Printf("🗑️ Engine: Sala [%s] removida da memória com sucesso.", roomID)
+			continue
+		}
+
+		// =======================================================
 		// 1. TRATAMENTO DE RESET
 		// =======================================================
 		if action.Type == "reset" {
 			wasDead := currentState.Status == "victory" || currentState.Status == "defeat"
-			sm.Reset() 
+			sm.Reset()
 
 			if wasDead {
 				go startRoomGameLoop(ctx, rdb, sm, roomID)
@@ -67,12 +81,20 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 		}
 
 		// =======================================================
-		// NOVO: TRATAMENTO DO START MANUAL
+		// 2. TRATAMENTO DO START MANUAL
 		// =======================================================
 		if action.Type == "start_battle" && currentState.Status == "waiting" {
 			sm.StartBattle()
 			broadcastState(ctx, rdb, sm.GetState(), roomID)
 			continue
+		}
+
+		// =======================================================
+		// REFRESH DE PLAYERS ENQUANTO AGUARDA
+		// Garante que a web receba a atualização de conexão
+		// =======================================================
+		if action.Type == "join" && currentState.Status == "waiting" {
+			broadcastState(ctx, rdb, sm.GetState(), roomID)
 		}
 
 		// =======================================================
@@ -87,7 +109,7 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 		// =======================================================
 		if currentState.ActiveIncident != nil && action.Type == "attack" {
 			if action.Class != currentState.ActiveIncident.TargetClass {
-				continue 
+				continue
 			}
 		}
 
@@ -98,8 +120,8 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 			sm.ApplyDamage(dmg, msgAction, action.Nickname, action.Class)
 
 			go db.Exec(`INSERT INTO rankings (nickname, class, total_damage, battle_id) 
-				VALUES (?, ?, ?, 1) ON CONFLICT (nickname) 
-				DO UPDATE SET total_damage = rankings.total_damage + EXCLUDED.total_damage`,
+                VALUES (?, ?, ?, 1) ON CONFLICT (nickname) 
+                DO UPDATE SET total_damage = rankings.total_damage + EXCLUDED.total_damage`,
 				action.Nickname, action.Class, dmg)
 		}
 
@@ -109,7 +131,7 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 			if success {
 				points := currentState.ActiveIncident.Points
 				sm.ApplyDamage(points, fmt.Sprintf("✨ %s: %s", action.Nickname, logMsg), action.Nickname, action.Class)
-				
+
 				sm.IncrementIncidentResolution()
 				newState := sm.GetState()
 
@@ -127,20 +149,20 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 }
 
 func startRoomGameLoop(ctx context.Context, rdb *redis.Client, sm *StateManager, roomID string) {
-	ticker := time.NewTicker(1 * time.Second) 
+	ticker := time.NewTicker(1 * time.Second)
 	chaosCounter := 0
 
 	for range ticker.C {
 		state := sm.GetState()
-		
-		// Se a equipe ganhou ou perdeu, desliga o loop
-		if state.Status == "victory" || state.Status == "defeat" {
+
+		// Se a equipe ganhou, perdeu ou a sala foi DELETADA, desliga o loop
+		if state.Status == "victory" || state.Status == "defeat" || state.Status == "deleted" {
 			ticker.Stop()
 			return
 		}
 
 		// =======================================================
-		// NOVO: TRAVA DE ESTADO "WAITING"
+		// TRAVA DE ESTADO "WAITING"
 		// Pula o segundo inteiro sem causar dano ou incidentes
 		// =======================================================
 		if state.Status == "waiting" {
@@ -154,7 +176,7 @@ func startRoomGameLoop(ctx context.Context, rdb *redis.Client, sm *StateManager,
 
 		if state.ActiveIncident != nil {
 			expired := sm.TickIncidentTimer()
-			
+
 			if expired {
 				sm.DealDamageToTeam(2500, "⚠️ INCIDENTE NÃO RESOLVIDO! A Equipe sofreu dano crítico!")
 				sm.ClearIncident()
