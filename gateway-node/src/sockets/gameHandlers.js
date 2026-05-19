@@ -56,13 +56,17 @@ module.exports = (io, socket) => {
 
             await pub.sadd(roomClassKey, nickname);
 
+            // 💥 CORREÇÃO CRÍTICA: Desconecta das salas antigas para evitar "Room Bleeding"
+            socket.rooms.forEach(room => {
+                if (room !== socket.id) socket.leave(room);
+            });
+
             socket.data.room_id = room_id;
             socket.data.playerClass = playerClass;
             socket.data.nickname = nickname;
 
             socket.join(room_id);
 
-            // CORREÇÃO: Log apenas se passar em TODAS as validações
             console.log(`🎮 ${nickname} entrou como ${playerClass} na sala [${room_id}]`);
 
             pub.publish(`room:${room_id}:attacks`, JSON.stringify({
@@ -74,8 +78,6 @@ module.exports = (io, socket) => {
             }));
 
             socket.emit('joined', { status: 'success', nickname, playerClass, room_id });
-
-            // 💥 triggerGoEngineUpdate removido daqui para evitar conflito com a criação da sala
 
         } catch (err) {
             console.error("Erro ao processar join_game:", err);
@@ -90,11 +92,16 @@ module.exports = (io, socket) => {
         const { room_id } = data;
         if (!room_id) return;
         
-        // 💥 NOVO: Garante que a sala exista no Redis mesmo se o painel web sofrer refresh
+        // 💥 CORREÇÃO CRÍTICA: Garante que o Admin não continue ouvindo a sala anterior
+        socket.rooms.forEach(room => {
+            if (room !== socket.id) socket.leave(room);
+        });
+
         await pub.sadd('active_dungeon_rooms', room_id);
         
         socket.join(room_id);
         socket.data.playerClass = 'admin';
+        socket.data.room_id = room_id;
         console.log(`👁️ O Mestre voltou a assistir a sala [${room_id}].`);
     });
 

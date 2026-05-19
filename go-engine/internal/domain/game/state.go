@@ -1,8 +1,10 @@
 package game
 
 import (
-	"pi-devops/internal/domain/contracts"
+	"sort" // <--- ADICIONADO: Necessário para ordenar o ranking
 	"sync"
+
+	"pi-devops/internal/domain/contracts"
 )
 
 type StateManager struct {
@@ -16,9 +18,9 @@ func NewStateManager(initialBoss contracts.Boss) *StateManager {
 		damageBoard: make(map[string]contracts.PlayerStat),
 		state: contracts.GameState{
 			BossHP:      initialBoss.MaxHP,
-			TeamHP:      10000, 
+			TeamHP:      10000,
 			MaxTeamHP:   10000,
-			Status:      "waiting", // <--- MUDANÇA: Começa esperando o Start
+			Status:      "waiting", // Começa esperando o Start
 			CurrentBoss: initialBoss,
 			LastAction:  "Aguardando o Professor iniciar a batalha...",
 		},
@@ -31,7 +33,7 @@ func (sm *StateManager) GetState() contracts.GameState {
 	return sm.state
 }
 
-// NOVO: Método para liberar a batalha
+// Método para liberar a batalha
 func (sm *StateManager) StartBattle() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -67,7 +69,7 @@ func (sm *StateManager) ApplyDamage(damage int, action string, nickname string, 
 		sm.state.BossHP = 0
 		sm.state.Status = "victory"
 		sm.state.LastAction = "O BOSS FOI DERROTADO!"
-		sm.calculateMVP()
+		sm.calculateRanking() // <--- CORRIGIDO: Chama o ranking em vez do MVP
 	}
 }
 
@@ -86,22 +88,30 @@ func (sm *StateManager) DealDamageToTeam(damage int, action string) {
 		sm.state.TeamHP = 0
 		sm.state.Status = "defeat"
 		sm.state.LastAction = "SISTEMA COMPROMETIDO. A EQUIPE FOI DERROTADA!"
-		sm.calculateMVP() 
+		sm.calculateRanking() // <--- CORRIGIDO: Chama o ranking em vez do MVP
 	}
 }
 
-func (sm *StateManager) calculateMVP() {
-	var mvp *contracts.PlayerStat
-	highestDamage := 0
+func (sm *StateManager) calculateRanking() {
+	var ranked []contracts.PlayerStat
 
+	// Transforma o map em um slice (array)
 	for _, stat := range sm.damageBoard {
-		if stat.Damage > highestDamage {
-			highestDamage = stat.Damage
-			statCopy := stat
-			mvp = &statCopy
-		}
+		ranked = append(ranked, stat)
 	}
-	sm.state.MVP = mvp
+
+	// Ordena do maior dano para o menor
+	sort.Slice(ranked, func(i, j int) bool {
+		return ranked[i].Damage > ranked[j].Damage
+	})
+
+	// Pega no máximo os 3 primeiros
+	limit := 3
+	if len(ranked) < limit {
+		limit = len(ranked)
+	}
+
+	sm.state.TopRank = ranked[:limit]
 }
 
 func (sm *StateManager) SetIncident(incident *contracts.Incident) {
@@ -134,12 +144,12 @@ func (sm *StateManager) Reset() {
 
 	sm.state.BossHP = sm.state.CurrentBoss.MaxHP
 	sm.state.TeamHP = sm.state.MaxTeamHP
-	sm.state.Status = "waiting" // <--- MUDANÇA: Volta para waiting no reset
+	sm.state.Status = "waiting" // Volta para waiting no reset
 	sm.state.ActiveIncident = nil
 	sm.state.IncidentTimer = 0
-	sm.state.MVP = nil
+	sm.state.TopRank = nil // <--- CORRIGIDO: Limpa o TopRank em vez do MVP
 	sm.state.LastAction = "A masmorra foi resetada! Aguardando o Professor iniciar..."
-	
+
 	sm.damageBoard = make(map[string]contracts.PlayerStat)
 }
 

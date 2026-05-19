@@ -51,5 +51,5 @@ type GameState struct {
     ActiveIncident *Incident   `json:"active_incident"` // Incidente atual (pode ser null)
     IncidentTimer  int         `json:"incident_timer"`  // Cronômetro regressivo
     CurrentBoss    Boss        `json:"current_boss"`    // Dados do professor atual
-    MVP            *PlayerStat `json:"mvp"`             // Guarda o destaque da rodada
+    TopRank        []PlayerStat `json:"top_rank"`            // Guarda o destaque da rodada
 }
