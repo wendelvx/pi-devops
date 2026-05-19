@@ -26,7 +26,8 @@ app.get('/api/health', (req, res) => {
 initRedisSubscriber(io);
 
 io.on('connection', (socket) => {
-    console.log(`📡 Novo aluno conectado: ${socket.id}`);
+    // MUDANÇA AQUI: Reflete que é apenas uma conexão "crua", antes de validar a sala.
+    console.log(`🔌 Nova conexão de socket estabelecida: ${socket.id}`);
     registerGameHandlers(io, socket);
 });
 

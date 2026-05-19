@@ -16,8 +16,6 @@ import (
 
 func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 	ctx := context.Background()
-
-	// Mapa para gerenciar múltiplas salas simultaneamente (RF09)
 	rooms := make(map[string]*StateManager)
 
 	pubsub := rdb.PSubscribe(ctx, "room:*:attacks")
@@ -32,15 +30,13 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 		}
 		roomID := parts[1]
 
-		// 1. LÊ A MENSAGEM PRIMEIRO
 		var action contracts.PlayerAction
 		json.Unmarshal([]byte(msg.Payload), &action)
 
-		// 2. Inicialização Dinâmica da Sala
 		if _, exists := rooms[roomID]; !exists {
 			log.Printf("🏰 Nova instância detectada: %s. Inicializando Boss...", roomID)
 
-			targetBoss := "infra_boss" // Boss Padrão
+			targetBoss := "infra_boss" 
 			
 			if action.Type == "join" && action.Payload != "" {
 				targetBoss = action.Payload
@@ -49,7 +45,6 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 			professor := boss.GetProfessorBoss(targetBoss)
 			rooms[roomID] = NewStateManager(professor)
 
-			// Inicia o Game Loop de 1 Segundo para ESTA sala
 			go startRoomGameLoop(ctx, rdb, rooms[roomID], roomID)
 		}
 
@@ -60,7 +55,7 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 		// 1. TRATAMENTO DE RESET
 		// =======================================================
 		if action.Type == "reset" {
-			wasDead := currentState.Status != "fighting"
+			wasDead := currentState.Status == "victory" || currentState.Status == "defeat"
 			sm.Reset() 
 
 			if wasDead {
@@ -72,10 +67,19 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 		}
 
 		// =======================================================
-		// 2. TRAVA DE FIM DE JOGO
+		// NOVO: TRATAMENTO DO START MANUAL
+		// =======================================================
+		if action.Type == "start_battle" && currentState.Status == "waiting" {
+			sm.StartBattle()
+			broadcastState(ctx, rdb, sm.GetState(), roomID)
+			continue
+		}
+
+		// =======================================================
+		// TRAVA DE FIM DE JOGO E ESPERA
 		// =======================================================
 		if currentState.Status != "fighting" {
-			continue
+			continue // Ignora ataques e resoluções se não estiver lutando
 		}
 
 		// =======================================================
@@ -87,12 +91,10 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 			}
 		}
 
-		// --- TRATAMENTO DE ATAQUE ---
 		if action.Type == "attack" {
 			dmg := CalculateDamage(action.Class, currentState.CurrentBoss.Weakness)
 			msgAction := fmt.Sprintf("%s atacou!", action.Nickname)
 
-			// CORREÇÃO AQUI: Passando o Nickname e a Class para registrar no MVP
 			sm.ApplyDamage(dmg, msgAction, action.Nickname, action.Class)
 
 			go db.Exec(`INSERT INTO rankings (nickname, class, total_damage, battle_id) 
@@ -101,15 +103,20 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 				action.Nickname, action.Class, dmg)
 		}
 
-		// --- TRATAMENTO DE RESOLUÇÃO ---
 		if action.Type == "resolve" {
 			success, logMsg := ValidateResolution(currentState.ActiveIncident, action.Class, action.Payload)
 
 			if success {
 				points := currentState.ActiveIncident.Points
-				// CORREÇÃO AQUI: Passando o Nickname e a Class
 				sm.ApplyDamage(points, fmt.Sprintf("✨ %s: %s", action.Nickname, logMsg), action.Nickname, action.Class)
-				sm.ClearIncident()
+				
+				sm.IncrementIncidentResolution()
+				newState := sm.GetState()
+
+				if newState.ActiveIncident != nil && newState.ActiveIncident.CurrentResolutions >= newState.ActiveIncident.RequiredResolutions {
+					sm.ClearIncident()
+					sm.ApplyDamage(0, "🛡️ A EQUIPE NEUTRALIZOU O INCIDENTE!", "", "")
+				}
 
 				go db.Exec(`UPDATE rankings SET incidents_solved = incidents_solved + 1 WHERE nickname = ?`, action.Nickname)
 			}
@@ -119,7 +126,6 @@ func StartGameEngine(db *gorm.DB, rdb *redis.Client) {
 	}
 }
 
-// O Coração da Sala (Roda a cada 1 segundo)
 func startRoomGameLoop(ctx context.Context, rdb *redis.Client, sm *StateManager, roomID string) {
 	ticker := time.NewTicker(1 * time.Second) 
 	chaosCounter := 0
@@ -127,29 +133,33 @@ func startRoomGameLoop(ctx context.Context, rdb *redis.Client, sm *StateManager,
 	for range ticker.C {
 		state := sm.GetState()
 		
-		// Se o jogo acabou, a rotina morre
-		if state.Status != "fighting" {
+		// Se a equipe ganhou ou perdeu, desliga o loop
+		if state.Status == "victory" || state.Status == "defeat" {
 			ticker.Stop()
 			return
 		}
 
+		// =======================================================
+		// NOVO: TRAVA DE ESTADO "WAITING"
+		// Pula o segundo inteiro sem causar dano ou incidentes
+		// =======================================================
+		if state.Status == "waiting" {
+			continue
+		}
+
 		needsBroadcast := false
 
-		// 1. Se tem um incidente ativo, faz a contagem regressiva
+		sm.DealDamageToTeam(75, "O Servidor está sofrendo degradação passiva...")
+		needsBroadcast = true
+
 		if state.ActiveIncident != nil {
 			expired := sm.TickIncidentTimer()
-			needsBroadcast = true
-
-			// =======================================================
-			// CORREÇÃO AQUI: APLICAR DANO NA EQUIPE SE O TEMPO ZERAR
-			// =======================================================
+			
 			if expired {
-				// Causa um dano gigante (ex: 2500) à vida da equipe
 				sm.DealDamageToTeam(2500, "⚠️ INCIDENTE NÃO RESOLVIDO! A Equipe sofreu dano crítico!")
 				sm.ClearIncident()
 			}
 		} else {
-			// 2. Se NÃO tem incidente, conta o tempo para o próximo caos
 			chaosCounter++
 			if chaosCounter >= 45 {
 				newIncident := GenerateIncident()
@@ -159,7 +169,6 @@ func startRoomGameLoop(ctx context.Context, rdb *redis.Client, sm *StateManager,
 			}
 		}
 
-		// Envia o estado atualizado para o React Native
 		if needsBroadcast {
 			broadcastState(ctx, rdb, sm.GetState(), roomID)
 		}

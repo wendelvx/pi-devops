@@ -12,7 +12,6 @@ const CLASS_LIMITS = {
 
 const lastAttack = new Map();
 
-// Função para forçar a Go Engine a devolver o estado atual
 function triggerGoEngineUpdate(room_id) {
     pub.publish(`room:${room_id}:attacks`, JSON.stringify({
         type: 'ping',
@@ -33,50 +32,39 @@ module.exports = (io, socket) => {
         }
 
         try {
-            // ========================================================
-            // BLOQUEIO DE SALAS FANTASMAS (Somente entra onde o Admin abriu)
-            // ========================================================
+            // BLOQUEIO DE SALAS FANTASMAS
             if (playerClass === 'admin') {
-                // Se é o Painel Web (Professor), nós REGISTRAMOS a sala no Redis
                 await pub.sadd('active_dungeon_rooms', room_id);
             } else {
-                // Se é o Mobile (Aluno), nós VERIFICAMOS se a sala existe no Redis
                 const roomExists = await pub.sismember('active_dungeon_rooms', room_id);
                 
                 if (!roomExists) {
-                    // Chuta o usuário antes mesmo de incomodar a Go Engine!
                     return socket.emit('game_error', { 
                         message: `A sala "${room_id}" não existe ou não foi aberta pelo Professor.` 
                     });
                 }
             }
-            // ========================================================
 
-            // A chave do Redis isolada por sala!
             const roomClassKey = `room:${room_id}:class_members:${playerClass}`;
-            
-            // Consulta o Redis para saber quantos membros essa classe já possui NESTA SALA
             const currentCount = await pub.scard(roomClassKey);
 
-            // Valida o limite de vagas (ignorando a classe 'admin' que não tem limite)
             if (CLASS_LIMITS[playerClass] !== undefined && currentCount >= CLASS_LIMITS[playerClass]) {
                 return socket.emit('game_error', { 
                     message: `A classe ${playerClass} atingiu o limite na sala ${room_id}.` 
                 });
             }
 
-            // Adiciona o nickname ao set da classe na sala específica
             await pub.sadd(roomClassKey, nickname);
 
-            // Salva os dados na sessão do socket
             socket.data.room_id = room_id;
             socket.data.playerClass = playerClass;
             socket.data.nickname = nickname;
 
-            // Inscreve o socket do Socket.io em uma "sala" (room)
             socket.join(room_id);
 
-            // Notifica a Engine em Go
+            // CORREÇÃO: Log apenas se passar em TODAS as validações
+            console.log(`🎮 ${nickname} entrou como ${playerClass} na sala [${room_id}]`);
+
             pub.publish(`room:${room_id}:attacks`, JSON.stringify({
                 type: 'join',
                 class: playerClass,
@@ -86,15 +74,48 @@ module.exports = (io, socket) => {
             }));
 
             socket.emit('joined', { status: 'success', nickname, playerClass, room_id });
-            console.log(`🎮 ${nickname} entrou como ${playerClass} na sala [${room_id}]`);
 
-            // Chama a função para atualizar a tela do Dashboard instantaneamente
             triggerGoEngineUpdate(room_id);
 
         } catch (err) {
             console.error("Erro ao processar join_game:", err);
             socket.emit('game_error', { message: "Erro interno ao validar vaga." });
         }
+    });
+
+    // ==========================================
+    // NOVO: CONEXÃO DE ESPECTADOR DO ADMIN
+    // ==========================================
+    socket.on('join_admin_spectator', (data) => {
+        const { room_id } = data;
+        if (!room_id) return;
+        
+        socket.join(room_id);
+        socket.data.playerClass = 'admin';
+        console.log(`👁️ O Mestre voltou a assistir a sala [${room_id}].`);
+    });
+
+    socket.on('admin_request_state', (data) => {
+        const { room_id } = data;
+        if (!room_id) return;
+        triggerGoEngineUpdate(room_id);
+    });
+
+    // ==========================================
+    // NOVO: START DA PARTIDA (Trava do Mestre)
+    // ==========================================
+    socket.on('admin_start_battle', (data) => {
+        const { room_id } = data;
+        if (socket.data.playerClass !== 'admin') return;
+
+        pub.publish(`room:${room_id}:attacks`, JSON.stringify({
+            type: 'start_battle',
+            class: 'admin',
+            nickname: 'GAME_MASTER',
+            timestamp: Date.now()
+        }));
+        
+        console.log(`🔥 O Mestre liberou a batalha na sala [${room_id}]!`);
     });
 
     // Comando de Ataque (RF04)
@@ -113,7 +134,6 @@ module.exports = (io, socket) => {
 
         attackCounter.inc({ class: playerClass });
 
-        // Publica o ataque no canal da sala correspondente
         pub.publish(`room:${room_id}:attacks`, JSON.stringify({
             type: 'attack',
             class: playerClass,
@@ -122,12 +142,11 @@ module.exports = (io, socket) => {
         }));
     });
 
-    // Resolução de Incidentes (RF05)
+    // Resolução de Incidentes
     socket.on('resolve_incident', (data) => {
         const { playerClass, nickname, room_id } = socket.data;
         if (!playerClass || !room_id) return;
 
-        // O 'data.payload' é a solução do desafio que o Mobile envia
         pub.publish(`room:${room_id}:attacks`, JSON.stringify({
             type: 'resolve',
             class: playerClass,
@@ -137,13 +156,11 @@ module.exports = (io, socket) => {
         }));
     });
 
-    // Reset da Sala pelo Admin
+    // Reset da Sala
     socket.on('admin_reset_room', (data) => {
         const { room_id } = data;
-        const { playerClass } = socket.data;
-
-        // Validação de segurança
-        if (playerClass !== 'admin') return;
+        
+        if (socket.data.playerClass !== 'admin') return;
 
         pub.publish(`room:${room_id}:attacks`, JSON.stringify({
             type: 'reset',
@@ -156,16 +173,13 @@ module.exports = (io, socket) => {
         console.log(`🔄 O Mestre resetou a sala [${room_id}].`);
     });
 
-    // Tratamento de Desconexão (RF08)
+    // Desconexão
     socket.on('disconnect', async () => {
         const { playerClass, nickname, room_id } = socket.data;
         
-        if (playerClass && nickname && room_id) {
-            // Libera a vaga na sala correta do Redis
+        if (playerClass && nickname && room_id && playerClass !== 'admin') {
             await pub.srem(`room:${room_id}:class_members:${playerClass}`, nickname);
             console.log(`❌ ${nickname} saiu da sala [${room_id}].`);
-            
-            // Chama a função para atualizar a tela do Dashboard com a pessoa a menos
             triggerGoEngineUpdate(room_id);
         }
         
