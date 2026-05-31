@@ -11,7 +11,6 @@ services:
     ports:
       - "80:80"
     volumes:
-      # Usando a sintaxe de montagem de socket que provou ser funcional no seu Windows
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
     networks:
       - dungeon_net
@@ -38,7 +37,6 @@ services:
       - POSTGRES_DB=dev
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # A LINHA MÁGICA ABAIXO (Ela roda o script na primeira vez que o banco sobe)
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dev -d dev"]
@@ -103,6 +101,15 @@ services:
       - "9090:9090"
     networks:
       - dungeon_net
+
+  # cloudflare-tunnel:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: cloudflare_tunnel
+  #   restart: always
+  #   # Ajustado para apontar para o container_name correto na rede interna
+  #   command: tunnel --url http://node_gateway:3001
+  #   networks:
+  #     - dungeon_net
 
 networks:
   dungeon_net:
