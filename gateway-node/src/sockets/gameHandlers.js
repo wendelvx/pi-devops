@@ -54,9 +54,17 @@ module.exports = (io, socket) => {
                 });
             }
 
+            // 💥 CORREÇÃO 1: Remover o aluno do Redis da sala ANTERIOR (se ele estiver trocando)
+            if (socket.data.room_id && socket.data.playerClass && socket.data.nickname) {
+                await pub.srem(`room:${socket.data.room_id}:class_members:${socket.data.playerClass}`, socket.data.nickname);
+                
+                // Dispara atualização para a engine recalcular a sala antiga
+                triggerGoEngineUpdate(socket.data.room_id);
+            }
+
             await pub.sadd(roomClassKey, nickname);
 
-            // 💥 CORREÇÃO CRÍTICA: Desconecta das salas antigas para evitar "Room Bleeding"
+            // 💥 CORREÇÃO CRÍTICA: Desconecta das salas antigas no socket.io para evitar "Room Bleeding"
             socket.rooms.forEach(room => {
                 if (room !== socket.id) socket.leave(room);
             });
@@ -204,6 +212,12 @@ module.exports = (io, socket) => {
         // 1. Remove a sala do Redis para que ninguém novo consiga logar
         await pub.srem('active_dungeon_rooms', room_id);
         
+        // 💥 CORREÇÃO 2: Expurgo total dos fantasmas no Redis
+        const CLASSES = ['front-end', 'back-end', 'devops', 'qa', 'security'];
+        await Promise.all(CLASSES.map(c => 
+            pub.del(`room:${room_id}:class_members:${c}`)
+        ));
+
         // 2. Notifica o Go Engine para matar o Game Loop
         pub.publish(`room:${room_id}:attacks`, JSON.stringify({
             type: 'delete',
@@ -216,6 +230,6 @@ module.exports = (io, socket) => {
         io.to(room_id).emit('room_deleted', { message: "A instância foi encerrada permanentemente pelo Professor." });
         io.in(room_id).socketsLeave(room_id);
         
-        console.log(`🗑️ Sala [${room_id}] deletada e todos os alunos foram expulsos.`);
+        console.log(`🗑️ Sala [${room_id}] deletada e todos os alunos/fantasmas foram expulsos.`);
     });
 };
