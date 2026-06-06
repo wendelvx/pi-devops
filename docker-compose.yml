@@ -27,22 +27,47 @@ services:
     networks:
       - dungeon_net
 
+  # Banco de Dados Principal (Master)
   postgres:
-    image: postgres:15-alpine
+    image: bitnami/postgresql:15
     container_name: dungeon_db
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=dev
-      - POSTGRES_PASSWORD=1234
-      - POSTGRES_DB=dev
+      - POSTGRESQL_REPLICATION_MODE=master
+      - POSTGRESQL_REPLICATION_USER=replicator
+      - POSTGRESQL_REPLICATION_PASSWORD=replica_pass
+      - POSTGRESQL_USERNAME=dev
+      - POSTGRESQL_PASSWORD=1234
+      - POSTGRESQL_DATABASE=dev
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/bitnami/postgresql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dev -d dev"]
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - dungeon_net
+
+  # Banco de Dados Secundário (Slave / Replica)
+  postgres-replica:
+    image: bitnami/postgresql:15
+    container_name: dungeon_db_replica
+    restart: unless-stopped
+    environment:
+      - POSTGRESQL_REPLICATION_MODE=slave
+      - POSTGRESQL_REPLICATION_MODE_MASTER_HOST=postgres
+      - POSTGRESQL_REPLICATION_MODE_MASTER_PORT=5432
+      - POSTGRESQL_REPLICATION_USER=replicator
+      - POSTGRESQL_REPLICATION_PASSWORD=replica_pass
+      - POSTGRESQL_USERNAME=dev
+      - POSTGRESQL_PASSWORD=1234
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - pgdata_replica:/bitnami/postgresql
     networks:
       - dungeon_net
 
@@ -102,19 +127,12 @@ services:
     networks:
       - dungeon_net
 
-  # cloudflare-tunnel:
-  #   image: cloudflare/cloudflared:latest
-  #   container_name: cloudflare_tunnel
-  #   restart: always
-  #   # Ajustado para apontar para o container_name correto na rede interna
-  #   command: tunnel --url http://node_gateway:3001
-  #   networks:
-  #     - dungeon_net
-
 networks:
   dungeon_net:
     driver: bridge
 
 volumes:
   pgdata:
+    driver: local
+  pgdata_replica:
     driver: local
