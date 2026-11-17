@@ -29,7 +29,7 @@ services:
 
   # Banco de Dados Principal (Master)
   postgres:
-    image: bitnami/postgresql:15
+    image: soldevelo/postgresql:15
     container_name: dungeon_db
     restart: unless-stopped
     environment:
@@ -52,7 +52,7 @@ services:
 
   # Banco de Dados Secundário (Slave / Replica)
   postgres-replica:
-    image: bitnami/postgresql:15
+    image: soldevelo/postgresql:15
     container_name: dungeon_db_replica
     restart: unless-stopped
     environment:
